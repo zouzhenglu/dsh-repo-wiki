@@ -38,6 +38,14 @@ const packageRoot = resolve(here, '..')
 const packageManifest = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'))
 
 const profileName = process.argv[2] ?? 'web'
+// A profile name is an identifier, not a command fragment. It is interpolated
+// into a shell command on Windows (see the `dsh --dump-config` step), so accept
+// only the characters DSH itself accepts in a profile name and refuse anything
+// else before it can reach a shell.
+if (!/^[A-Za-z0-9._-]+$/.test(profileName)) {
+  console.error(`invalid profile name ${JSON.stringify(profileName)}: expected letters, digits, '.', '_' or '-'`)
+  process.exit(1)
+}
 const dshHome = process.env.DSH_HOME ?? join(homedir(), '.dsh')
 const profileDir = join(dshHome, 'profiles', profileName)
 
@@ -116,6 +124,7 @@ let composedConfig = null
 const dumpResult = spawnSync('dsh', ['--profile', profileName, '--dump-config'], {
   encoding: 'utf8',
   shell: process.platform === 'win32',
+  windowsHide: true,
   cwd: packageRoot,
 })
 if (dumpResult.status !== 0) {

@@ -1,8 +1,20 @@
 # dsh-repo-wiki
 
-给 DeepSeek Harness 加一个「仓库 Wiki」：让模型把代码库读一遍，整理成一份**可随时查阅的代码库架构导读**，每条结论都带源码位置，结果保存在本机、不写入仓库。
+给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 加一个「仓库 Wiki」：让模型把代码库读一遍，整理成一份**可随时查阅的代码库架构导读**，每条结论都带源码位置，结果保存在本机、不写入仓库。
 
-这是对 [ZCode 的 Wiki 功能](https://zcode.z.ai/cn/docs/repo-wiki) 的模仿实现 —— 一个 DSH 插件（host 半边 + 浏览器半边，同一个 cordis row 同时挂载）。
+这是对 [ZCode 的 Wiki 功能](https://zcode.z.ai/cn/docs/repo-wiki) 的模仿实现 —— 一个 DSH 插件（bundle），host 半边与浏览器半边由同一个 cordis row 同时挂载。
+
+![license](https://img.shields.io/badge/license-MIT-blue.svg)
+![node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)
+![dsh](https://img.shields.io/badge/dsh-0.2.x-blueviolet.svg)
+
+> **English.** A Repo Wiki plugin for DeepSeek Harness. The model explores a
+> codebase, writes a multi-page architecture guide with `path:line-line`
+> citations, and every citation is checked against the files it actually read.
+> The result lives in `<DSH_HOME>/repo-wiki/`, and is exposed three ways: a
+> model-facing `repo_wiki` tool, `/api/repoWiki.*` routes, and a right-sidebar
+> tab. The last few versions of the guide are kept so a bad regeneration can be
+> rolled back. Install with `dsh plugin --profile web add github:zouzhenglu/dsh-repo-wiki`.
 
 ---
 
@@ -10,15 +22,19 @@
 
 - [它做了什么](#它做了什么)
 - [与 ZCode 的对应关系](#与-zcode-的对应关系)
+- [要求](#要求)
 - [安装](#安装)
 - [使用](#使用)
 - [它会读什么、拒绝什么](#它会读什么拒绝什么)
 - [配置](#配置)
 - [存放位置与文件格式](#存放位置与文件格式)
 - [限制](#限制)
+- [已知未验证的部分](#已知未验证的部分)
 - [代码结构](#代码结构)
 - [测试](#测试)
 - [本实现与 ZCode 的差异](#本实现与-zcode-的差异)
+- [参与开发](#参与开发)
+- [License](#license)
 
 ---
 
@@ -47,93 +63,65 @@
 | 一个仓库同时只跑一个任务、一个仓库只保留一个语言版本 | 完全一致 |
 | 不保留历史版本 | **保留最近 3 天的多份历史版本**（默认最多 30 份），可逐份恢复；**单页重新生成是本实现多出来的**（ZCode 两者皆无） |
 
+## 要求
+
+| 项 | 要求 |
+| --- | --- |
+| DeepSeek Harness | 0.2.x（Web 版）。插件在 `0.2.0-rc.2` 上开发与验证 |
+| Node.js | ≥ 20（`node --test` 与 ESM 顶层 await） |
+| pnpm | 需要能在 `PATH` 上被调用 —— `dsh plugin` 用它完成安装 |
+| 一个可启动的 profile | 通常是 `web`，即 Web 版已经跑过一次、`<DSH_HOME>/profiles/web` 已经存在 |
+
+插件对 `@deepseek-ai/dsh-llm`、`dsh-tools`、`dsh-timeout`、`dsh-home-paths`、`schemastery` 只声明「需要这些包」而**不锁定版本**（`peerDependencies: "*"`），因此不会被 DSH 的 peer 版本兼容门拦下。
+
 ## 安装
 
-前置：`~/.dsh/profiles/web` 已存在（也就是 Web 版跑过一次）。
+### 从 GitHub 装（推荐）
 
-```powershell
-cd D:\agents\dsh-wiki
+```sh
+dsh plugin --profile web add github:zouzhenglu/dsh-repo-wiki
+```
 
-# 让插件自己的目录能解析 @deepseek-ai/*（pnpm 以 link: 方式安装，模块解析会从
-# 插件的真实路径出发，所以这一步是必需的；分发时改由 peerDependencies 承担）
-if (-not (Test-Path node_modules\@deepseek-ai)) {
-  New-Item -ItemType Directory -Path node_modules -Force | Out-Null
-  New-Item -ItemType Junction -Path node_modules\@deepseek-ai `
-    -Target "$env:USERPROFILE\.dsh\profiles\node_modules\@deepseek-ai"
-}
+装完**重启 Harness**（见[为什么必须重启](#为什么必须重启)）。右侧栏的 guide 里就会出现「仓库 Wiki」。
 
-# 装进 profile（pnpm 会把包装好并链接过去）
-dsh plugin --profile web add D:\agents\dsh-wiki
+`dsh plugin` 的 target 不限于一条命令：git 地址（`github:user/repo`、`git+https://…`、`https://github.com/user/repo`）、本地绝对目录、`.tgz` 包、npm 包名都可以。它会把包装进 profile，并把 `dsh-repo-wiki` 自动追加到该 profile 的 `dsh.profile.bundles`。
 
-# 校验
+安装过程中 pnpm 可能打印 `Issues with peer dependencies found` 之类的警告。这是预期的：peer 依赖由 DSH 运行时本身提供，不需要（也不应该）被打进 profile。
+
+### 从本地目录装
+
+```sh
+git clone https://github.com/zouzhenglu/dsh-repo-wiki.git
+dsh plugin --profile web add /绝对路径/dsh-repo-wiki
+```
+
+如果你要在**克隆目录里**直接改代码（而不是装一份拷贝），见[参与开发](#参与开发)。
+
+### 为什么必须重启
+
+浏览器半边（`lib/client.js`）的地址是在 Harness **启动时**组装进 `window.__DSH_BOOT__` 与 index 的 script 标签的，走 combo URL 批量下发：
+
+```
+plugins/??…,dsh-repo-wiki/client.js,…&rev=<哈希>
+```
+
+不存在 `/plugins/<包名>/client.js` 这种单文件地址。所以正在运行的那个实例不会热加载新插件，必须重启。
+
+### 校验安装
+
+```sh
 node scripts/verify-install.mjs web
 ```
 
-### 关于 `dsh plugin` 的退出码
+五项检查，全部 PASS 才算装好：profile 能按包名解析到插件、模块导出 `name`/`inject`/`Config`/`apply`、composed config 能通过插件自己的 schema、client 半边可被发现、bundle 声明存在且 patch 里确实插入了 `dsh-repo-wiki` 这一行。退出码 0 = 全通过。
 
-`dsh plugin --profile web add` 会在 pnpm 成功后把 `dsh-repo-wiki` 追加到 `dsh.profile.bundles`。本机 pnpm 12 因为一个**与本插件无关**的既有策略错误而返回非 0（`ERR_PNPM_IGNORED_BUILDS`：`@google/genai`、`protobufjs` 声明了构建脚本），于是 DSH 跳过了这步对账。依赖本身已经装好了，所以只需要手工补上这一行：
+### 卸载
 
-```jsonc
-// ~/.dsh/profiles/web/package.json
-"dsh": { "profile": { "bundles": [
-  "@deepseek-ai/dsh-base",
-  "@deepseek-ai/dsh-web-app",
-  "@deepseek-ai/dsh-experimental-agent-team-profile",
-  "@axiaohungry/dsh-llm-workbuddy",
-  "dsh-repo-wiki"          // ← 加这一行
-] } }
-```
-
-然后 `node scripts/verify-install.mjs web` 应该全部 PASS。改完**重启 Harness**（或让 `patchReload: live` 生效）。
-
-### 重启后才能看到
-
-client 的浏览器名单是在**启动时**组装进 `window.__DSH_BOOT__` 与 index 的 script 标签里的，所以当前正在运行的那个实例不会加载新插件。重启后：
-
-- 右侧栏的 guide 里会出现「仓库 Wiki」；
-- 首页 HTML 里会多出一条 combo 地址，形如
-  `plugins/??…,dsh-repo-wiki/client.js,…&rev=<哈希>`（`dsh-client-modules` 用 combo URL 批量下发浏览器插件，**并不存在** `/plugins/<包名>/client.js` 这种单文件地址 —— 我按后者去探测过，那是我猜错了路径）。
-
-### 这次实际验证到了什么
-
-用 `DSH_HOME` 指向一个临时目录、单独起了一个隔离实例（临时 profile 只挂 `dsh-base` + `dsh-web-app` + 本插件，`--port 0 --no-open`），跑完即销毁，全程没碰你正在跑的那个实例和你的数据。观察到：
-
-| 观察到的事实 | 说明 |
-| --- | --- |
-| 实例正常起在随机端口 | 插件没有阻止启动 |
-| `GET /api/repoWiki.state?sessionId=none` → **200** | host 半边真的挂上了：返回 `{"workspace":{"name":"dsh-wiki","root":"D:\\agents\\dsh-wiki"},"fingerprint":{"value":"28:0601ac0c48e99976","files":28}}`，也就是它在**真的读这个仓库**并套用了排除规则（`node_modules` 不在 28 个文件里） |
-| 含 `dsh-repo-wiki/client.js` 的 combo → **200，443 KB** | 浏览器半边真的下发了 |
-| 下发内容含 `window.__ModuleLoader__.load({ id: "dsh-repo-wiki" …})`、`rw-root`、`sidebarRightTabs`、`repoWiki.state`、`仓库 Wiki` | 是这份 bundle 本身，不是同名占位 |
-
-路由能应答这件事本身就证明了 `apply` 跑过：路由是在 `ctx.inject(['connection'], …)` 里注册的，而 `apply` 只在 `inject: ['llm','tools']` 全部就绪时才会执行。
-
-### 版本与兼容门
-
-本机的 `dsh` CLI 是 `0.2.0-rc.2`，而 profile 里那批插件是 `0.1.7-rc.2`。运行时的兼容门会把 peer 版本对不上的 row **禁用掉**并在启动时打印警告 —— 本机被禁用的一共有五个，都是**既有**状况，与本插件无关：
-
-```
-browser-use, browser-use-playwright-mcp, computer-use,
-computer-use-cua-driver-native, rea-mcp
-```
-
-本插件在 `peerDependencies` 里对 `@deepseek-ai/dsh-llm` / `dsh-tools` / `dsh-timeout` / `dsh-home-paths` / `schemastery` 声明了 `*`（只声明「需要这些包」，不锁定版本），所以**不会被这道门拦下**。可以自己确认：
-
-```powershell
-dsh --profile web --help 2>&1 | Select-String 'disabling profile plugin row'
-# 输出里不应出现 repo-wiki
-```
-
-它编写与测试所依据的是 profile 的 `profiles/node_modules/@deepseek-ai/` 里那一份 `0.1.7-rc.2`，插件 import 的 `BlockAssembler` / `createUserMessage` 等工具函数都来自那里；跨版本混用是这套声明的已知代价，文档里如实写出而不是藏起来。
-
-### 回滚
-
-```powershell
-# 1) 从 dsh.profile.bundles 里删掉 "dsh-repo-wiki"
-# 2) 卸掉依赖
+```sh
 dsh plugin --profile web remove dsh-repo-wiki
 ```
 
-安装前 profile 的 `package.json` / `cordis.patch.yml` / `pnpm-workspace.yaml` 已备份在 `~/.dsh/profiles/web/.backup-<时间戳>/`。插件本身不含任何安装期副作用：删掉它不会留下任何东西，已生成的 Wiki 也只在 `<DSH_HOME>/repo-wiki/` 下。
+插件不含任何安装期副作用。已生成的 Wiki 在 `<DSH_HOME>/repo-wiki/` 下，卸载不会删它们；需要时手工删除即可。安装期的各种异常见 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)。
 
 ## 使用
 
@@ -202,7 +190,7 @@ POST /api/repoWiki.restore    {sessionId, versionId?}   // 恢复历史版本，
 
 ## 配置
 
-`~/.dsh/profiles/web/cordis.patch.yml` 里那一行 `- id: repo-wiki` 的 `config`，或者在 bundle 的 `cordis.patch.yml` 里改。
+`<DSH_HOME>/profiles/web/cordis.patch.yml` 里那一行 `- id: repo-wiki` 的 `config`，或者在 bundle 的 `cordis.patch.yml` 里改。
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
@@ -237,7 +225,7 @@ POST /api/repoWiki.restore    {sessionId, versionId?}   // 恢复历史版本，
 ```jsonc
 {
   "version": 1,
-  "workspace": { "id": "…", "name": "my-project", "root": "D:\\code\\my-project" },
+  "workspace": { "id": "…", "name": "my-project", "root": "/code/my-project" },
   "meta": {
     "language": "zh-CN", "updatedAt": "…", "branch": "main", "commit": "…",
     "fileCount": 27, "diagrams": true, "model": null,
@@ -270,6 +258,23 @@ POST /api/repoWiki.restore    {sessionId, versionId?}   // 恢复历史版本，
 - **自动刷新有一半依赖会话订阅。** DSH 把 `turn/end` 暴露为会话日志事件，插件会尽力订阅（`sessions.list()` 里已有的会话 + 会话对象支持 `on` 时）。订阅不上的环境里，过期状态仍然照常通过界面的「代码已变更」提示和 `/wiki` 报告 —— 只是少了「自动」那一半。
 - **生成需要模型端点可用。** 单次请求超过 `requestTimeoutMs` 会被放弃（不会挂住）。
 
+## 已知未验证的部分
+
+**没有用真实模型端点跑过一次完整生成。** 下面这些有证据，「模型写出来的页面质量」没有：
+
+| 已验证 | 怎么验证的 |
+| --- | --- |
+| 173 个单元/集成测试全绿 | `npm test`，9 个套件 |
+| 真正的 mount：工具、路由、命令注册，经真实路由跑完一次生成 | `test/host-plugin.test.mjs`，其中**只有** provider 的原始 chunk 流是桩 |
+| 从 git 地址安装、bundle 自动登记、`files` 字段生效 | 隔离 `DSH_HOME` 里 `dsh plugin --profile web add <git 地址>` |
+| profile 能组合出插件 row、bundle patch 被读到 | `dsh --profile web --dump-config` 里出现完整的 `repo-wiki` 配置块 |
+| pnpm 12 的 `ERR_PNPM_IGNORED_BUILDS` 可用 `allowBuilds` 解决 | 批准后 `dsh plugin install` / `add` 都干净退出 |
+| 引用校验、落盘、历史版本、恢复、删除 | `test/service.test.mjs`、`test/store.test.mjs`、`test/model.test.mjs` |
+
+**未验证**：真实的模型输出质量、真实代码库上的目录划分是否合理、长请求下的超时与重试表现。这套代码按 DSH 的流式 LLM 合约（`ctx.llm.stream` + `BlockAssembler` + `deadline`）实现，但接上你实际在用的模型端点后，仍建议先在一个小仓库上试一次。
+
+安装期的各类情况（pnpm 构建脚本批准、`@deepseek-ai/cordis` 从哪来、为什么必须重启、怎么回滚）见 [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)。
+
 ## 代码结构
 
 ```
@@ -288,16 +293,18 @@ lib/
     service.js       任务生命周期（一任务/工作区、一语言/工作区）、读、删、刷新、版本存档与恢复
 scripts/
   verify-install.mjs 安装校验：按 profile 解析、插件合约、composed config 校验、client 半边、bundle patch
-  repair-client-encoding.mjs 一次性修复记录：client.js 曾被一次非 UTF-8 往返写坏（92 处、80 行），此表记录了每处还原；已执行，不再需要运行
-test/                171 个测试
-docs/                DSH API 侦察笔记（LLM / client / host 三份，含逐条出处）
+test/                173 个测试
+docs/                DSH API 侦察笔记（LLM / client / host 三份）、安装排查
+tools/preview/       预览与布局质量工具（把 Mermaid 语料渲染成一张可量尺寸的页面）
 ```
 
 ## 测试
 
-```powershell
-npm test          # 171 个测试，全部离线、确定性
+```sh
+npm test
 ```
+
+173 个测试，9 个套件。其中 **8 个完全离线**（只用 `node:` 内置模块）；`host-plugin` 这一个需要 DSH 运行时提供的 peer 依赖，缺少时会**整体 skip 并说明原因**，而不是失败 —— 所以一个刚 `git clone` 下来的仓库也能直接跑出结果。
 
 覆盖面：
 
@@ -329,10 +336,40 @@ npm test          # 171 个测试，全部离线、确定性
 8. **探索请求被端点整体拒绝时降级而不是整体失败**：有些模型网关（vLLM 系）会把 tool 的 JSON Schema 拿去编译校验，所以 `list_directory`/`read_file`/`finish` 的 schema 用的是严格合法的 JSON Schema（顶层 `required` 数组）；即便如此，若带 tools 的探索请求仍被拒（网关 400 等），会自动改用无 tools 的简报模式重试分析阶段，并记一条 warning——宁可探索浅一点，也不让整次生成失败。
 9. **多版本历史**：ZCode 不保留历史版本；这里每次整份重跑和删除前都把当前版本存进 `history/`，默认保留 3 天、最多 30 份，界面上有「历史版本」列表并支持逐份恢复，整份重跑/刷新/删除前还会先确认。一次误点、连续多次空生成或错误生成，都不该把几十分钟的结果彻底丢掉。
 
-## 没有在这里做的一步
+## 参与开发
 
-**没有用真实模型跑过一次生成。** 本机两个模型端点中，`127.0.0.1:8787`（Trae）没在监听，`127.0.0.1:7863` 需要凭据 —— 用你的凭据花你的额度去跑一次验证，不是我该替你做的决定。
+需要一个能把 `@deepseek-ai/*` 解析出来的本地环境。`npm test` 里 8 个套件不需要，只有 `host-plugin` 需要。
 
-所以「模型真的能写出合格的页面」这件事，目前只有**桩模型**层面的证据（`host-plugin` 那一套里，provider 的 chunk 流是唯一被替换掉的东西，`BlockAssembler`、`deadline`、消息构造、引用校验、落盘、路由 JSON 全是真代码），没有真实输出质量的证据。
+```sh
+git clone https://github.com/zouzhenglu/dsh-repo-wiki.git
+cd dsh-repo-wiki
+npm test
+```
 
-要真跑通一次：重启 Harness，打开右侧栏的「仓库 Wiki」，选好语言后点「生成 Wiki」。`repo_wiki` 工具的 `generate` + `status` 是同样的路径。
+要让 `host-plugin` 也跑起来，在仓库根建一个指向 DSH 安装的链接目录，让插件目录能解析它声明的 peer 依赖：
+
+```powershell
+# Windows
+New-Item -ItemType Directory node_modules -Force
+New-Item -ItemType Junction node_modules\@deepseek-ai `
+  -Target "$env:USERPROFILE\.dsh\profiles\node_modules\@deepseek-ai"
+```
+
+```sh
+# macOS / Linux
+mkdir -p node_modules
+ln -s "$HOME/.dsh/profiles/node_modules/@deepseek-ai" node_modules/@deepseek-ai
+```
+
+这个链接**不会被提交**（已在 `.gitignore` 里）。原因：以 `link:` 方式装进 profile 时，模块解析从插件的真实路径出发，需要这份链接；以 git/npm 方式分发时由 `peerDependencies` + profile 自己的 `node_modules` 承担。
+
+`tools/preview/` 是开发期的图表质量工具：把真实 Wiki 里的 Mermaid 语料渲染成一张页面，量布局重叠、标签溢出等几何问题。
+
+```sh
+npm run preview          # 生成 tools/preview/preview.html（未提交）
+node tools/preview/build.mjs --wiki <某个 wiki.json 路径>
+```
+
+## License
+
+[MIT](LICENSE)
