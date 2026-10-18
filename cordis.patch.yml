@@ -1,0 +1,40 @@
+# The dsh-repo-wiki bundle patch.
+#
+# One dual-face row: `lib/index.js` is the host half (the wiki service, the
+# per-workspace `wiki.json` store, the model-facing `repo_wiki` tool, and the
+# `/api/repoWiki.*` routes), and `lib/client.js` is the browser half (the
+# "仓库 Wiki" tab type in the right Sidebar). The `dsh-client-modules` row
+# scans the composed tree for `dsh.client` rows, publishes this package in
+# `window.__DSH_BOOT__`, and serves `/plugins/dsh-repo-wiki/client.js`.
+#
+# Installed by `dsh plugin --profile web add <this directory>`; the
+# `dsh.bundle.patch` declaration in package.json is what makes that command
+# append this package to the profile's `dsh.profile.bundles` layer stack.
+
+- insert:
+    - id: repo-wiki
+      name: dsh-repo-wiki
+      config:
+        # Wiki language when the caller names none: zh-CN | en.
+        language: zh-CN
+        # Per-request model timeout, in milliseconds. ZCode fixes this at
+        # 180000 and refuses to configure it; this plugin keeps the same
+        # default but lets a deployment raise it for slow local endpoints.
+        requestTimeoutMs: 180000
+        # Page-generation retries after the first failure. A transient transport
+        # error ("terminated", a gateway timeout) would otherwise cost a whole
+        # page; two retries ride out the common cases without hiding a real
+        # outage. (ZCode's own default is 0; raise or lower to taste.)
+        retries: 2
+        # Whether the catalog prompt may ask for Mermaid diagrams.
+        diagrams: true
+        # Every full run archives the version it replaces under history/.
+        # Keep the last three days, at most 30 versions per workspace: enough to
+        # roll back a mis-click or a string of bad runs, bounded on disk.
+        historyRetentionDays: 3
+        historyMaxEntries: 30
+        # The model route is deliberately left unset, which is what makes
+        # "generate with the model this session is already using" the default.
+        # To pin one for every run, uncomment and fill in both halves:
+        #   provider: deepseek-official
+        #   model: deepseek-chat

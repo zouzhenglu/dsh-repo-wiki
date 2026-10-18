@@ -1,0 +1,75 @@
+{
+  "name": "dsh-repo-wiki",
+  "version": "0.1.0",
+  "description": "Repo Wiki for DeepSeek Harness: read a codebase once and keep a source-cited architecture guide, with a model-facing tool, HTTP routes and a right-sidebar tab.",
+  "keywords": [
+    "deepseek",
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "plugin",
+    "bundle",
+    "wiki",
+    "architecture",
+    "documentation",
+    "codebase"
+  ],
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "lib/llm-client.js",
+    "lib/wiki/**/*.js",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "author": "zouzhenglu",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zouzhenglu/dsh-repo-wiki.git"
+  },
+  "homepage": "https://github.com/zouzhenglu/dsh-repo-wiki#readme",
+  "bugs": {
+    "url": "https://github.com/zouzhenglu/dsh-repo-wiki/issues"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
+      ],
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-home-paths": "*",
+    "@deepseek-ai/dsh-llm": "*",
+    "@deepseek-ai/dsh-timeout": "*",
+    "@deepseek-ai/dsh-tools": "*",
+    "@deepseek-ai/schemastery": "*"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\"",
+    "verify": "node scripts/verify-install.mjs web",
+    "preview": "node tools/preview/build.mjs",
+    "prepublishOnly": "npm test"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

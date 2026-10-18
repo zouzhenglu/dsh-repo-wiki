@@ -1,0 +1,47 @@
+# Dependencies
+#
+# `node_modules/` here is normally a junction into the DSH installation's own
+# `@deepseek-ai` packages, created locally so this checkout can resolve the peer
+# dependencies declared in package.json. It never belongs in the repository.
+node_modules/
+
+# Local research artifacts — extracted app archives and scratch scripts
+.research-asar/
+*.asar
+.tmp-*
+*.tmp
+
+# Build output of the preview tool (regenerate with `npm run preview`)
+tools/preview/preview.html
+
+# Test and coverage output
+coverage/
+.nyc_output/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+
+# Editors
+.vscode/
+.idea/
+.fleet/
+*.swp
+*.swo
+*~
+
+# OS metadata
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Local configuration and secrets
+.env
+.env.*
+.npmrc

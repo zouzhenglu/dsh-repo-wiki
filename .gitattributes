@@ -1,0 +1,15 @@
+# Normalize every text file to LF in the repository. `lib/client.js` is a
+# hand-authored bundle whose exact bytes are part of its behaviour, so a
+# checkout must reproduce them identically on Windows and POSIX.
+* text=auto eol=lf
+
+# Keep binary fixtures binary.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.zip binary
+*.tgz binary
